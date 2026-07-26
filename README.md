@@ -1,13 +1,13 @@
 # 🛡️ AML Compliance Agent — A RAG + Tool-Calling AI Project
 
-> A beginner-friendly, end-to-end example of an **AI agent** that makes real
-> compliance decisions by combining a **knowledge base (RAG)** with **live data
-> from the internet (tool calling)**.
+> An **AI agent** that makes real compliance decisions by combining a
+> **knowledge base (RAG)** with **live government data (tool calling)**, and
+> returns an auditable ALLOW / REVIEW / BLOCK verdict with its evidence.
 >
-> This README is written to be read by *anyone* — including people with no
-> technical background. It explains not just *what* the project does, but *how*
-> it was built, *what went wrong along the way*, and *how each bug was fixed*.
-> The mistakes are part of the lesson.
+> This README covers what the project does, how it is built, and the five bugs
+> that separated an agent that *runs* from one that *decides correctly*.
+> **Section 7 is the substance** — Bug #3 in particular, where a 0.99 name match
+> on JP Morgan turned out not to be a sanctions hit at all.
 
 ---
 
@@ -15,19 +15,18 @@
 
 - [🛡️ AML Compliance Agent — A RAG + Tool-Calling AI Project](#️-aml-compliance-agent--a-rag--tool-calling-ai-project)
   - [Table of Contents](#table-of-contents)
-  - [1. What is this project, in plain English?](#1-what-is-this-project-in-plain-english)
+  - [1. What this project does](#1-what-this-project-does)
   - [2. The core idea: two kinds of knowledge](#2-the-core-idea-two-kinds-of-knowledge)
   - [3. How the pieces fit together](#3-how-the-pieces-fit-together)
-  - [4. Every file, explained simply](#4-every-file-explained-simply)
-  - [5. What is RAG? What is "chunking"?](#5-what-is-rag-what-is-chunking)
-  - [6. What is "tool calling"?](#6-what-is-tool-calling)
+  - [4. Every file, explained](#4-every-file-explained)
+  - [5. Retrieval design: RAG and chunking strategy](#5-retrieval-design-rag-and-chunking-strategy)
+  - [6. Tool calling and agent autonomy](#6-tool-calling-and-agent-autonomy)
   - [7. The debugging journey — bugs we hit and how we fixed them](#7-the-debugging-journey--bugs-we-hit-and-how-we-fixed-them)
-    - [🐛 Bug #1 — A file named `inspect.py` broke Python itself](#-bug-1--a-file-named-inspectpy-broke-python-itself)
-    - [🐛 Bug #2 — The currency tool converted the wrong direction](#-bug-2--the-currency-tool-converted-the-wrong-direction)
-    - [🐛 Bug #3 — The sanctions API returned "401 Unauthorized", then "no key"](#-bug-3--the-sanctions-api-returned-401-unauthorized-then-no-key)
-    - [🐛 Bug #4 — The biggest one: it blocked a perfectly good bank](#-bug-4--the-biggest-one-it-blocked-a-perfectly-good-bank)
-    - [🐛 Bug #5 — We let the language model do the math (and it got it wrong)](#-bug-5--we-let-the-language-model-do-the-math-and-it-got-it-wrong)
-    - [🐛 Bug #6 — A dead API that failed *silently* and returned a believable lie](#-bug-6--a-dead-api-that-failed-silently-and-returned-a-believable-lie)
+    - [🐛 Bug #1 — The currency tool converted the wrong direction](#-bug-1--the-currency-tool-converted-the-wrong-direction)
+    - [🐛 Bug #2 — The sanctions API returned "401 Unauthorized", then "no key"](#-bug-2--the-sanctions-api-returned-401-unauthorized-then-no-key)
+    - [🐛 Bug #3 — The biggest one: it blocked a perfectly good bank](#-bug-3--the-biggest-one-it-blocked-a-perfectly-good-bank)
+    - [🐛 Bug #4 — We let the language model do the math (and it got it wrong)](#-bug-4--we-let-the-language-model-do-the-math-and-it-got-it-wrong)
+    - [🐛 Bug #5 — A dead API that failed *silently* and returned a believable lie](#-bug-5--a-dead-api-that-failed-silently-and-returned-a-believable-lie)
   - [8. Example outputs](#8-example-outputs)
   - [9. How to run it yourself](#9-how-to-run-it-yourself)
   - [10. Important honesty notes \& limitations](#10-important-honesty-notes--limitations)
@@ -35,7 +34,7 @@
 
 ---
 
-## 1. What is this project, in plain English?
+## 1. What this project does
 
 Imagine a bank or a payment company (like a Stripe or a Wise). Every time it
 sends money abroad on a customer's behalf, it is **legally required to check**:
@@ -109,7 +108,7 @@ constantly. So the agent must do two things and combine them:
 
 ---
 
-## 4. Every file, explained simply
+## 4. Every file, explained
 
 | File | What it is, in one sentence |
 |---|---|
@@ -126,9 +125,9 @@ constantly. So the agent must do two things and combine them:
 
 ---
 
-## 5. What is RAG? What is "chunking"?
+## 5. Retrieval design: RAG and chunking strategy
 
-**RAG** stands for *Retrieval-Augmented Generation*. In plain terms:
+**RAG** stands for *Retrieval-Augmented Generation*:
 
 > Before the AI answers, it first **retrieves** the most relevant pieces of your
 > documents, then uses them to **generate** a grounded answer.
@@ -157,7 +156,7 @@ python src/inspect_store.py "high risk country"   # shows what gets retrieved
 
 ---
 
-## 6. What is "tool calling"?
+## 6. Tool calling and agent autonomy
 
 A plain language model can only produce text. It **cannot** look up today's
 sanctions list or today's exchange rate. **Tool calling** fixes that.
@@ -181,39 +180,13 @@ the name, check the amount, then decide. That autonomy is what makes it an
 
 ## 7. The debugging journey — bugs we hit and how we fixed them
 
-> This is the most valuable section. Building the agent was easy; making it
-> *correct* took six real bugs. Each one taught a lesson that applies to almost
-> any tool-calling project.
+> Building the agent was straightforward. Making it *correct* took five bugs.
+> Each one carries a lesson that applies to almost any tool-calling project —
+> and Bug #3 is the one that separates a screening tool from a toy.
 
 ---
 
-### 🐛 Bug #1 — A file named `inspect.py` broke Python itself
-
-**What happened:** We created a helper file called `src/inspect.py`. The moment
-we ran anything, Python crashed with a strange error:
-
-```
-AttributeError: partially initialized module 'inspect' has no attribute 'signature'
-(most likely due to a circular import)
-```
-
-**Why:** Python has its *own* built-in module called `inspect`. By naming our
-file `inspect.py`, we accidentally **shadowed** (hid) the built-in one. When a
-library tried to use the real `inspect`, it found our file instead and crashed.
-
-**The fix:** Rename the file.
-
-```diff
-- src/inspect.py
-+ src/inspect_store.py
-```
-
-**Lesson:** Never name your files after Python's built-in modules (`inspect`,
-`json`, `email`, `string`, `random`, etc.). It causes confusing crashes.
-
----
-
-### 🐛 Bug #2 — The currency tool converted the wrong direction
+### 🐛 Bug #1 — The currency tool converted the wrong direction
 
 **What happened:** Our policy thresholds are written in **US dollars** (e.g.
 "payments over $10,000 need review"). But a payment might come in as ₹2,500,000
@@ -250,7 +223,7 @@ expects. The policy thinks in USD, so the tool must output USD.
 
 ---
 
-### 🐛 Bug #3 — The sanctions API returned "401 Unauthorized", then "no key"
+### 🐛 Bug #2 — The sanctions API returned "401 Unauthorized", then "no key"
 
 This bug had **two layers**, and both are common real-world traps.
 
@@ -310,7 +283,7 @@ configuration at import time, before it's loaded, is a classic silent bug.
 
 ---
 
-### 🐛 Bug #4 — The biggest one: it blocked a perfectly good bank
+### 🐛 Bug #3 — The biggest one: it blocked a perfectly good bank
 
 This is the most important lesson in the whole project.
 
@@ -390,7 +363,7 @@ actual difference between a toy and a real compliance tool.
 
 ---
 
-### 🐛 Bug #5 — We let the language model do the math (and it got it wrong)
+### 🐛 Bug #4 — We let the language model do the math (and it got it wrong)
 
 **What happened:** We tested a payment of ₹800,000 to a clean company in India.
 ₹800,000 is about **$8,400** — comfortably *under* the $10,000 threshold, so it
@@ -432,9 +405,9 @@ threshold, a count, a date — should be computed in code. The model's job is to
 
 ---
 
-### 🐛 Bug #6 — A dead API that failed *silently* and returned a believable lie
+### 🐛 Bug #5 — A dead API that failed *silently* and returned a believable lie
 
-**What happened:** Even after Bug #5, the same payment was *still* going to
+**What happened:** Even after Bug #4, the same payment was *still* going to
 REVIEW. We tested the currency tool directly (with no language model involved)
 and found the smoking gun:
 
@@ -561,12 +534,21 @@ uvicorn api:app --reload --app-dir src
 Then open **http://127.0.0.1:8000/docs**, click `POST /screen` → "Try it out",
 edit the fields, and click "Execute".
 
+**Want more depth?** Two companion documents go further than this README:
+
+- **[`WALKTHROUGH.md`](WALKTHROUGH.md)** — a file-by-file tour of how a single
+  request flows through the system, from the API call to the LLM's tool
+  selection to the final cross-checked verdict. Read this to understand *how the
+  agent thinks*.
+- **[`DOCKER_GUIDE.md`](DOCKER_GUIDE.md)** — how to build and run the whole
+  project as a container, plus why production AI services ship this way.
+
 ---
 
 ## 10. Important honesty notes & limitations
 
-This project is a **learning demo**, and being honest about its limits is part
-of doing this well:
+Scope matters in compliance tooling, so the limits are stated plainly — an
+overstated screening tool is exactly the failure mode this project is about:
 
 - **A note on how currency is handled.** The `get_fx_rate` tool converts the
   payment amount into USD before checking it against the policy's USD threshold.
